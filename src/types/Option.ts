@@ -5,6 +5,9 @@ export interface InternalOption {
   liquidityAtOpen: string;
   liquidityExercised: string;
   liquiditySettled: string;
+  liquidityAtLive: string;
+  tickLower: string;
+  tickUpper: string;
   strike: string;
   index: string;
 }
@@ -24,4 +27,4 @@ export interface Option {
 
 export interface OptionsResponse {
   options: Option[];
-} 
+}

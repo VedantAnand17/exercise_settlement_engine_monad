@@ -1,10 +1,11 @@
-import { Chain } from 'viem/chains';
-import winston from 'winston';
+import { Chain } from "viem/chains";
+import winston from "winston";
 
 export interface ChainConfig {
   rpcUrl: string;
   swapRouterSwapper: string;
   autoExercise: string;
+  quoter: string;
 }
 
 export class ChainConfigService {
@@ -13,32 +14,33 @@ export class ChainConfigService {
 
   constructor() {
     this.chainConfigs = new Map();
-    
+
     // Initialize logger
     this.logger = winston.createLogger({
-      level: 'info',
+      level: "info",
       format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json()
       ),
       transports: [
         new winston.transports.Console(),
-        new winston.transports.File({ filename: 'chain-config.log' })
-      ]
+        new winston.transports.File({ filename: "chain-config.log" }),
+      ],
     });
   }
 
   private loadConfig(chainId: number): ChainConfig {
     this.logger.info(`Loading configuration for chain ${chainId}`);
-    
+
     // Log all relevant environment variables for debugging
     const envVars = {
       rpcUrl: process.env[`RPC_URL_${chainId}`],
       swapRouterSwapper: process.env[`SWAP_ROUTER_SWAPPER_${chainId}`],
-      autoExercise: process.env[`AUTO_EXERCISE_${chainId}`]
+      autoExercise: process.env[`AUTO_EXERCISE_${chainId}`],
+      quoter: process.env[`QUOTER_${chainId}`],
     };
-    
-    this.logger.info('Environment variables:', { chainId, envVars });
+
+    this.logger.info("Environment variables:", { chainId, envVars });
 
     const rpcUrl = process.env[`RPC_URL_${chainId}`];
     if (!rpcUrl) {
@@ -48,24 +50,41 @@ export class ChainConfigService {
 
     const swapRouterSwapper = process.env[`SWAP_ROUTER_SWAPPER_${chainId}`];
     if (!swapRouterSwapper) {
-      this.logger.error(`Missing SWAP_ROUTER_SWAPPER_${chainId} in environment variables`);
-      throw new Error(`Missing SWAP_ROUTER_SWAPPER_${chainId} in environment variables`);
+      this.logger.error(
+        `Missing SWAP_ROUTER_SWAPPER_${chainId} in environment variables`
+      );
+      throw new Error(
+        `Missing SWAP_ROUTER_SWAPPER_${chainId} in environment variables`
+      );
     }
 
     const autoExercise = process.env[`AUTO_EXERCISE_${chainId}`];
     if (!autoExercise) {
-      this.logger.error(`Missing AUTO_EXERCISE_${chainId} in environment variables`);
-      throw new Error(`Missing AUTO_EXERCISE_${chainId} in environment variables`);
+      this.logger.error(
+        `Missing AUTO_EXERCISE_${chainId} in environment variables`
+      );
+      throw new Error(
+        `Missing AUTO_EXERCISE_${chainId} in environment variables`
+      );
+    }
+
+    const quoter = process.env[`QUOTER_${chainId}`];
+    if (!quoter) {
+      this.logger.error(`Missing QUOTER_${chainId} in environment variables`);
+      throw new Error(`Missing QUOTER_${chainId} in environment variables`);
     }
 
     const config = {
       rpcUrl,
       swapRouterSwapper,
       autoExercise,
+      quoter,
     };
 
     this.chainConfigs.set(chainId, config);
-    this.logger.info(`Successfully loaded configuration for chain ${chainId}`, { config });
+    this.logger.info(`Successfully loaded configuration for chain ${chainId}`, {
+      config,
+    });
     return config;
   }
 
@@ -98,4 +117,8 @@ export class ChainConfigService {
   getAutoExercise(chainId: number): string {
     return this.getConfig(chainId).autoExercise;
   }
-} 
+
+  getQuoterAddress(chainId: number): string {
+    return this.getConfig(chainId).quoter;
+  }
+}

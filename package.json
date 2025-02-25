@@ -16,12 +16,18 @@
   "license": "ISC",
   "dependencies": {
     "@types/node": "^22.13.5",
+    "@types/node-telegram-bot-api": "^0.64.7",
+    "@uniswap/sdk-core": "^7.6.0",
+    "@uniswap/v3-sdk": "^3.24.1",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
+    "jsbi": "^4.3.0",
+    "node-telegram-bot-api": "^0.66.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3",
     "viem": "^2.23.5",
-    "winston": "^3.17.0"
+    "winston": "^3.17.0",
+    "winston-transport": "^4.9.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",

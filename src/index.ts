@@ -1,14 +1,21 @@
 import dotenv from 'dotenv';
-import { SettlementEngine } from './SettlementEngine';
+import { SettlementEngine, SettlementEngineConfig } from './SettlementEngine';
 import { OptionsService } from './services/OptionsService';
 import { ChainConfigService } from './services/ChainConfigService';
+import { TelegramConfig } from './services/TelegramService';
 
 // Load environment variables
 dotenv.config();
 
 const {
   PRIVATE_KEY,
-  API_BASE_URL = 'http://localhost:42069'
+  API_BASE_URL = 'http://localhost:42069',
+  TELEGRAM_BOT_TOKEN,
+  TELEGRAM_CHAT_ID,
+  TELEGRAM_ENABLED = 'false',
+  LOG_LEVEL_ERROR = 'true',
+  LOG_LEVEL_WARN = 'false',
+  LOG_LEVEL_INFO = 'false'
 } = process.env;
 
 if (!PRIVATE_KEY) {
@@ -21,12 +28,34 @@ async function main() {
     const chainConfigService = new ChainConfigService();
     const optionsService = new OptionsService(API_BASE_URL);
 
+    // Configure Telegram integration
+    const telegramConfig: TelegramConfig = {
+      token: TELEGRAM_BOT_TOKEN || '',
+      chatId: TELEGRAM_CHAT_ID || '',
+      enabled: TELEGRAM_ENABLED.toLowerCase() === 'true'
+    };
+
+    // Configure which log levels should be sent to Telegram
+    const logLevels = {
+      error: LOG_LEVEL_ERROR.toLowerCase() === 'true',
+      warn: LOG_LEVEL_WARN.toLowerCase() === 'true',
+      info: LOG_LEVEL_INFO.toLowerCase() === 'true'
+    };
+
+    // Create engine configuration
+    const engineConfig: SettlementEngineConfig = {
+      telegram: telegramConfig,
+      logLevels
+    };
+
     console.log('Starting Settlement Engine...');
+    console.log('Telegram notifications:', telegramConfig.enabled ? 'Enabled' : 'Disabled');
 
     const engine = new SettlementEngine(
       PRIVATE_KEY as string,
       chainConfigService,
-      optionsService
+      optionsService,
+      engineConfig
     );
 
     // Handle graceful shutdown
