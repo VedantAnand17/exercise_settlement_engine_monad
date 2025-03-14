@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "dev:watch": "tsc && nodemon --watch 'src/**/*.ts' -e ts --exec 'tsc && ts-node src/index.ts'",
+    "dev:watch": "nodemon --watch 'src/**/*.ts' --signal SIGTERM --exec 'pnpm run build && pnpm run start'",
     "test": "jest",
     "local": "tsc && ts-node src/index.ts"
   },
@@ -26,7 +26,7 @@
     "node-telegram-bot-api": "^0.66.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.3",
-    "viem": "^2.23.5",
+    "viem": "^2.23.10",
     "winston": "^3.17.0",
     "winston-transport": "^4.9.0"
   },

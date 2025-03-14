@@ -168,20 +168,28 @@ async function main() {
 
     // Start the server
     const port = parseInt(SERVER_PORT, 10);
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       console.log(`API server listening on port ${port}`);
     });
 
     // Handle graceful shutdown
-    process.on("SIGINT", () => {
-      console.log("Received SIGINT. Gracefully shutting down...");
-      engine.stop();
-    });
+    const gracefulShutdown = () => {
+      console.log("Gracefully shutting down...");
+      server.close(() => {
+        console.log("HTTP server closed");
+        engine.stop();
+        process.exit(0);
+      });
 
-    process.on("SIGTERM", () => {
-      console.log("Received SIGTERM. Gracefully shutting down...");
-      engine.stop();
-    });
+      // Force close after 10 seconds if server hasn't closed
+      setTimeout(() => {
+        console.log("Forcing shutdown after timeout");
+        process.exit(1);
+      }, 10000);
+    };
+
+    process.on("SIGINT", gracefulShutdown);
+    process.on("SIGTERM", gracefulShutdown);
 
     // Start the engine
     await engine.start();

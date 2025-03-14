@@ -379,12 +379,12 @@ export class SettlementEngine {
         option.chainId
       );
 
-      // Get pool fee from the pool
       const poolFee = (await publicClient.readContract({
-        address: option.market as `0x${string}`,
+        address: option.internalOptions[0].pool as `0x${string}`,
         abi: UniswapV3PoolABI,
         functionName: "fee",
       })) as number;
+      this.logger.info(`Pool fee: ${poolFee}`);
 
       // Calculate liquidity to settle for each internal option
       const liquidityToSettle: bigint[] = option.internalOptions.map(

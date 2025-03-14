@@ -3,5 +3,7 @@
   "ignore": [".git", "node_modules", "dist"],
   "verbose": true,
   "watch": ["src/"],
-  "ext": "ts"
+  "ext": "ts",
+  "delay": "1000",
+  "killSignal": "SIGTERM"
 }
