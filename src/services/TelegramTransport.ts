@@ -1,7 +1,10 @@
-import Transport from 'winston-transport';
-import { TelegramService } from './TelegramService';
+import * as winstonTransport from "winston-transport";
+import { TelegramService } from "./TelegramService";
 
-interface TelegramTransportOptions extends Transport.TransportStreamOptions {
+const TransportClass = winstonTransport.default || winstonTransport;
+
+interface TelegramTransportOptions
+  extends winstonTransport.TransportStreamOptions {
   telegramService: TelegramService;
   level?: string;
   handleExceptions?: boolean;
@@ -18,14 +21,14 @@ interface TelegramTransportOptions extends Transport.TransportStreamOptions {
   };
 }
 
-export class TelegramTransport extends Transport {
+export class TelegramTransport extends TransportClass {
   private telegramService: TelegramService;
   private enabledLevels: Record<string, boolean>;
 
   constructor(opts: TelegramTransportOptions) {
     super(opts);
     this.telegramService = opts.telegramService;
-    
+
     // Default to only sending error logs to Telegram
     this.enabledLevels = {
       error: true,
@@ -35,13 +38,13 @@ export class TelegramTransport extends Transport {
       verbose: false,
       debug: false,
       silly: false,
-      ...opts.levels
+      ...opts.levels,
     };
   }
 
   async log(info: any, callback: () => void) {
-    const level = info.level || 'info';
-    
+    const level = info.level || "info";
+
     // Check if this log level should be sent to Telegram
     if (!this.enabledLevels[level]) {
       callback();
@@ -50,29 +53,29 @@ export class TelegramTransport extends Transport {
 
     try {
       // Extract message and metadata
-      const message = info.message || '';
+      const message = info.message || "";
       const metadata = { ...info };
-      
+
       // Remove standard properties from metadata
       delete metadata.level;
       delete metadata.message;
       delete metadata.timestamp;
-      
+
       // Format the log message for Telegram
-      let formattedMessage = '';
-      
-      if (level === 'error') {
+      let formattedMessage = "";
+
+      if (level === "error") {
         await this.telegramService.sendErrorAlert(message, metadata);
-      } else if (level === 'warn') {
+      } else if (level === "warn") {
         formattedMessage = `⚠️ <b>WARNING</b> ⚠️\n\n${message}`;
         await this.telegramService.sendMessage(formattedMessage);
       } else {
         await this.telegramService.sendInfoAlert(message, metadata);
       }
     } catch (error) {
-      console.error('Error sending log to Telegram:', error);
+      console.error("Error sending log to Telegram:", error);
     }
-    
+
     callback();
   }
-} 
+}

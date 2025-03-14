@@ -19,7 +19,13 @@ import { OptionsService } from "./services/OptionsService";
 import { ChainConfigService } from "./services/ChainConfigService";
 import { TelegramService, TelegramConfig } from "./services/TelegramService";
 import { TelegramTransport } from "./services/TelegramTransport";
-import { Option } from "./types/Option";
+import { ProfitabilityCalculator } from "./services/ProfitabilityCalculator";
+import {
+  Option,
+  GetRatesRequest,
+  GetRatesResponse,
+  ProfitabilityResult,
+} from "./types/Option";
 import winston from "winston";
 import { AutoExerciseABI } from "./abis/AutoExerciseABI";
 import { SwapRouterSwapperABI } from "./abis/SwapRouterSwapperABI";
@@ -59,10 +65,12 @@ export class SettlementEngine {
   private readonly optionsService: OptionsService;
   private readonly chainConfigService: ChainConfigService;
   private readonly telegramService: TelegramService;
+  private readonly profitabilityCalculator: ProfitabilityCalculator;
   private readonly privateKey: string;
   private readonly logger: winston.Logger;
   private isRunning: boolean = false;
   private readonly chainConfigs: Map<number, Chain> = new Map();
+  private cacheCleanupInterval: NodeJS.Timeout | null = null;
 
   constructor(
     privateKey: string,
@@ -102,6 +110,12 @@ export class SettlementEngine {
       ),
       transports,
     });
+
+    // Initialize the profitability calculator
+    this.profitabilityCalculator = new ProfitabilityCalculator(
+      chainConfigService,
+      this.logger
+    );
   }
 
   async start() {
@@ -113,6 +127,9 @@ export class SettlementEngine {
     this.isRunning = true;
     this.logger.info("Starting settlement engine");
 
+    // Start cache cleanup interval
+    this.cacheCleanupInterval = setInterval(() => this.cleanupCache(), 300000); // Clean every 5 minutes
+
     while (this.isRunning) {
       try {
         await this.processExpiringOptions();
@@ -122,11 +139,23 @@ export class SettlementEngine {
         this.logger.error("Error in main loop:", error);
       }
     }
+
+    // Clear interval when stopping
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval);
+      this.cacheCleanupInterval = null;
+    }
   }
 
   stop() {
     this.isRunning = false;
     this.logger.info("Stopping settlement engine");
+
+    // Clear cache cleanup interval
+    if (this.cacheCleanupInterval) {
+      clearInterval(this.cacheCleanupInterval);
+      this.cacheCleanupInterval = null;
+    }
   }
 
   private getChainConfig(chainId: number): Chain {
@@ -250,222 +279,39 @@ export class SettlementEngine {
         option.chainId
       );
 
-      // Get prime pool address and then its fee
-      const primePool = await publicClient.readContract({
-        address: option.market as `0x${string}`,
-        abi: OptionMarketABI,
-        functionName: "primePool",
-      });
+      // Create a request for profitability calculation
+      const request: GetRatesRequest = {
+        chainId: option.chainId,
+        market: option.market,
+        pool: option.market, // Initially use market as pool
+        tokenId: option.tokenId,
+        isCall: option.isCall,
+        internalOptions: option.internalOptions.map((internalOption) => ({
+          tickLower: internalOption.tickLower,
+          tickUpper: internalOption.tickUpper,
+          liquidity: internalOption.liquidityAtLive,
+        })),
+      };
 
-      // Get call and put assets and pool data in a single multicall
-      const multicallResult = await publicClient.multicall({
-        contracts: [
-          {
-            address: option.market as `0x${string}`,
-            abi: OptionMarketABI,
-            functionName: "callAsset",
-          },
-          {
-            address: option.market as `0x${string}`,
-            abi: OptionMarketABI,
-            functionName: "putAsset",
-          },
-          {
-            address: primePool as `0x${string}`,
-            abi: UniswapV3PoolABI,
-            functionName: "token0",
-          },
-          {
-            address: primePool as `0x${string}`,
-            abi: UniswapV3PoolABI,
-            functionName: "token1",
-          },
-          {
-            address: primePool as `0x${string}`,
-            abi: UniswapV3PoolABI,
-            functionName: "fee",
-          },
-          {
-            address: primePool as `0x${string}`,
-            abi: UniswapV3PoolABI,
-            functionName: "slot0",
-          },
-          {
-            address: primePool as `0x${string}`,
-            abi: UniswapV3PoolABI,
-            functionName: "liquidity",
-          },
-        ],
-      });
-
-      if (multicallResult.some((result) => result.status === "failure")) {
-        throw new Error("Failed to fetch pool data");
-      }
-
-      const callAsset = multicallResult[0].result as `0x${string}`;
-      const putAsset = multicallResult[1].result as `0x${string}`;
-      const token0 = multicallResult[2].result as `0x${string}`;
-      const token1 = multicallResult[3].result as `0x${string}`;
-      const poolFee = multicallResult[4].result as number;
-      const slot0 = multicallResult[5].result as [
-        bigint,
-        number,
-        number,
-        number,
-        number,
-        number,
-        boolean
-      ];
-      const liquidity = multicallResult[6].result as bigint;
-
-      // Determine which token is which in the pool
-      const isCall = option.isCall;
-      const isAmount0 = isCall ? token0 === callAsset : token0 === putAsset;
-
-      // Determine assetToUse and assetToGet
-      const assetToUse = isCall ? callAsset : putAsset;
-      const assetToGet = isCall ? putAsset : callAsset;
-
-      // Calculate profitability for each internal option
-      let totalProfit = BigInt(0);
-      const liquidityToExercise: bigint[] = [];
-      const profitabilityDetails: any[] = [];
-
-      for (let i = 0; i < option.internalOptions.length; i++) {
-        const internalOption = option.internalOptions[i];
-
-        // Calculate available liquidity
-        const liquidityAvailable = BigInt(internalOption.liquidityAtLive);
-
-        if (liquidityAvailable <= BigInt(0)) {
-          liquidityToExercise.push(BigInt(0));
-          continue;
-        }
-
-        // Get tick lower and tick upper from the internal option
-        const tickLower = internalOption.tickLower;
-        const tickUpper = internalOption.tickUpper;
-
-        // Get sqrt price for ticks
-        const sqrtRatioAX96 = TickMath.getSqrtRatioAtTick(Number(tickLower));
-        const sqrtRatioBX96 = TickMath.getSqrtRatioAtTick(Number(tickUpper));
-
-        this.logger.info("Sqrt price calculations", {
-          tickLower,
-          tickUpper,
-          sqrtRatioAX96: sqrtRatioAX96.toString(),
-          sqrtRatioBX96: sqrtRatioBX96.toString(),
-          liquidityAvailable: liquidityAvailable.toString(),
-        });
-
-        // Calculate amounts using SqrtPriceMath
-        const amount0 = SqrtPriceMath.getAmount0Delta(
-          sqrtRatioAX96,
-          sqrtRatioBX96,
-          JSBI.BigInt(liquidityAvailable.toString()),
-          true // round up
+      // Calculate profitability using the profitability calculator
+      const profitabilityResult =
+        await this.profitabilityCalculator.calculateOptionProfitability(
+          request
         );
-        const amount1 = SqrtPriceMath.getAmount1Delta(
-          sqrtRatioAX96,
-          sqrtRatioBX96,
-          JSBI.BigInt(liquidityAvailable.toString()),
-          true // round up
-        );
-
-        this.logger.info("Raw amounts", {
-          amount0: amount0.toString(),
-          amount1: amount1.toString(),
-        });
-
-        let amountLocked: JSBI;
-        let amountToRefill: JSBI;
-
-        if (isAmount0) {
-          amountLocked = amount0;
-          amountToRefill = amount1;
-        } else {
-          amountLocked = amount1;
-          amountToRefill = amount0;
-        }
-
-        this.logger.info("Final amounts", {
-          amountLocked: amountLocked.toString(),
-          amountToRefill: amountToRefill.toString(),
-          isAmount0,
-        });
-
-        // Get quoter address from chain config
-        const quoterAddress = this.chainConfigService.getQuoterAddress(
-          option.chainId
-        );
-
-        // Convert JSBI to native BigInt for the contract call
-        const amountToSwapBigInt = BigInt(amountLocked.toString());
-
-        // Use Quoter contract to estimate swap output
-        const { result } = (await publicClient.simulateContract({
-          address: quoterAddress as `0x${string}`,
-          abi: quoterABI,
-          functionName: "quoteExactInputSingle",
-          args: [
-            {
-              tokenIn: assetToUse,
-              tokenOut: assetToGet,
-              amountIn: amountToSwapBigInt,
-              fee: poolFee,
-              sqrtPriceLimitX96: BigInt(0), // no limit
-            },
-          ],
-        })) as { result: [bigint, bigint, number, bigint] };
-
-        // Extract amountOut from the result tuple
-        const quotedAmountOut = result[0];
-        this.logger.info("Quoted amount out", {
-          quotedAmountOut: quotedAmountOut.toString(),
-          sqrtPriceAfter: result[1].toString(),
-          ticksCrossed: result[2].toString(),
-          gasEstimate: result[3].toString(),
-          tokenIn: assetToUse,
-          tokenOut: assetToGet,
-          amountIn: amountToSwapBigInt,
-          fee: poolFee,
-        });
-
-        const profit = quotedAmountOut - BigInt(amountToRefill.toString());
-
-        profitabilityDetails.push({
-          index: i,
-          liquidityAvailable: liquidityAvailable.toString(),
-          amountLocked: amountLocked.toString(),
-          quotedAmountOut: (quotedAmountOut as bigint).toString(),
-          amountToRefill: amountToRefill.toString(),
-          profit: profit.toString(),
-          isProfitable: profit > BigInt(0),
-        });
-
-        // Add to total profit only if profitable
-        if (profit > BigInt(0)) {
-          totalProfit += profit;
-        }
-
-        // Only exercise if profitable
-        liquidityToExercise.push(
-          profit > BigInt(0) ? liquidityAvailable : BigInt(0)
-        );
-      }
 
       // Log profitability details
       this.logger.info(`Profitability analysis for option ${option.tokenId}`, {
-        totalProfit: totalProfit.toString(),
-        isProfitable: totalProfit > BigInt(0),
-        details: profitabilityDetails,
+        totalProfit: profitabilityResult.totalProfit,
+        isProfitable: profitabilityResult.isProfitable,
+        details: profitabilityResult.details,
       });
 
       // Check if there's any liquidity to exercise
-      const totalLiquidityToExercise = liquidityToExercise.reduce(
-        (sum, liquidity) => sum + liquidity,
-        BigInt(0)
-      );
+      const totalLiquidityToExercise =
+        profitabilityResult.exerciseParams?.liquidityToExercise.reduce(
+          (sum, liquidity) => sum + BigInt(liquidity || "0"),
+          BigInt(0)
+        ) || BigInt(0);
 
       if (totalLiquidityToExercise === BigInt(0)) {
         this.logger.info(
@@ -474,42 +320,9 @@ export class SettlementEngine {
         return;
       }
 
-      // Prepare swap data for each position
-      const swapData = option.internalOptions.map((internalOption) => {
-        return encodePacked(
-          ["uint24", "uint256"],
-          [
-            poolFee,
-            BigInt(0), // minAmount set to 0
-          ]
-        );
-      });
-
       const autoExerciseAddress = this.chainConfigService.getAutoExercise(
         option.chainId
       );
-      const swapRouterSwapperAddress =
-        this.chainConfigService.getSwapRouterSwapper(option.chainId);
-
-      // Get swapper address from environment
-      const swapperAddresses = Array(option.opTickArrayLen).fill(
-        swapRouterSwapperAddress
-      );
-
-      // // Prepare exercise parameters
-      const exerciseParams = {
-        optionId: BigInt(option.tokenId),
-        swapper: swapperAddresses as readonly `0x${string}`[],
-        swapData: swapData as readonly `0x${string}`[],
-        liquidityToExercise: liquidityToExercise as readonly bigint[],
-      };
-
-      this.logger.info("Attempting to exercise option with params:", {
-        optionId: option.tokenId,
-        liquidityToExercise,
-        swapperAddresses,
-        totalProfit: totalProfit.toString(),
-      });
 
       // Calculate executor fee (e.g., 5% of profit)
       const executorFee = BigInt(100000); // 5% in basis points (out of 10000)
@@ -525,14 +338,25 @@ export class SettlementEngine {
           option.market as `0x${string}`,
           BigInt(option.tokenId),
           executorFee,
-          exerciseParams,
+          {
+            optionId: BigInt(
+              profitabilityResult.exerciseParams?.optionId || "0"
+            ),
+            swapper: profitabilityResult.exerciseParams?.swapper || [],
+            swapData: (profitabilityResult.exerciseParams?.swapData ||
+              []) as readonly `0x${string}`[],
+            liquidityToExercise:
+              profitabilityResult.exerciseParams?.liquidityToExercise.map(
+                (liquidity) => BigInt(liquidity || "0")
+              ) || [],
+          },
         ],
       });
 
       this.logger.info(`Auto-exercise transaction submitted`, {
         optionId: option.tokenId,
         hash,
-        params: exerciseParams,
+        params: profitabilityResult.exerciseParams,
       });
     } catch (error) {
       this.logger.error(
@@ -554,18 +378,13 @@ export class SettlementEngine {
       const { publicClient, walletClient } = this.createClientsForChain(
         option.chainId
       );
-      // Get prime pool address and then its fee
-      const primePool = await publicClient.readContract({
-        address: option.market as `0x${string}`,
-        abi: OptionMarketABI,
-        functionName: "primePool",
-      });
 
-      const poolFee = await publicClient.readContract({
-        address: primePool,
+      // Get pool fee from the pool
+      const poolFee = (await publicClient.readContract({
+        address: option.market as `0x${string}`,
         abi: UniswapV3PoolABI,
         functionName: "fee",
-      });
+      })) as number;
 
       // Calculate liquidity to settle for each internal option
       const liquidityToSettle: bigint[] = option.internalOptions.map(
@@ -644,5 +463,18 @@ export class SettlementEngine {
         market: option.market,
       });
     }
+  }
+
+  // Method to clean up expired cache entries
+  private cleanupCache() {
+    // Clean up the profitability calculator's cache
+    this.profitabilityCalculator.cleanupCache();
+  }
+
+  // Public method to calculate option profitability (delegates to the profitability calculator)
+  async calculateOptionProfitability(
+    request: GetRatesRequest
+  ): Promise<GetRatesResponse> {
+    return this.profitabilityCalculator.calculateOptionProfitability(request);
   }
 }
