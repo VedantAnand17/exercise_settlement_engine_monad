@@ -58,6 +58,7 @@ export interface GetRatesResponse {
   tokenId: string;
   totalProfit: string;
   isProfitable: boolean;
+  value: string;
   details: ProfitabilityResult[];
   exerciseParams?: {
     optionId: string;

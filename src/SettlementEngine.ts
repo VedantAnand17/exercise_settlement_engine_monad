@@ -477,4 +477,30 @@ export class SettlementEngine {
   ): Promise<GetRatesResponse> {
     return this.profitabilityCalculator.calculateOptionProfitability(request);
   }
+
+  // Public method specifically for the get-rates endpoint - includes all liquidity regardless of profitability
+  async calculateOptionProfitabilityForAPI(
+    request: GetRatesRequest
+  ): Promise<GetRatesResponse> {
+    // Get standard profitability calculation
+    const result =
+      await this.profitabilityCalculator.calculateOptionProfitability(request);
+
+    // For API responses, we want to include all liquidity regardless of profitability
+    // So we replace the exerciseParams with a version that includes all liquidity
+    if (result.exerciseParams && result.details.length > 0) {
+      // Get all liquidity available from details
+      const fullLiquidityToExercise = result.details.map(
+        (detail) => detail.liquidityAvailable
+      );
+
+      // Create a new exerciseParams with all liquidity
+      result.exerciseParams = {
+        ...result.exerciseParams,
+        liquidityToExercise: fullLiquidityToExercise,
+      };
+    }
+
+    return result;
+  }
 }

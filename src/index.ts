@@ -128,7 +128,7 @@ async function main() {
 
         // Race the actual calculation against the timeout
         const result = (await Promise.race([
-          engine.calculateOptionProfitability(request),
+          engine.calculateOptionProfitabilityForAPI(request),
           timeoutPromise,
         ])) as GetRatesResponse;
 

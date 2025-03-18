@@ -376,6 +376,7 @@ export class ProfitabilityCalculator {
 
       // Process results and calculate profitability
       let totalProfit = BigInt(0);
+      let totalValue = BigInt(0); // Track total value (profit/loss)
       const profitabilityDetails: ProfitabilityResult[] = [];
       let quoteIndex = 0;
 
@@ -429,6 +430,9 @@ export class ProfitabilityCalculator {
           isProfitable: profit > BigInt(0),
         });
 
+        // Always add to total value regardless of profitability
+        totalValue += profit;
+
         // Add to total profit only if profitable
         if (profit > BigInt(0)) {
           totalProfit += profit;
@@ -438,6 +442,7 @@ export class ProfitabilityCalculator {
       // Log summary instead of detailed logs for each option
       this.logger.info(`Profitability analysis for option ${request.tokenId}`, {
         totalProfit: totalProfit.toString(),
+        value: totalValue.toString(),
         isProfitable: totalProfit > BigInt(0),
         optionCount: request.internalOptions.length,
         profitableCount: profitabilityDetails.filter((d) => d.isProfitable)
@@ -468,6 +473,7 @@ export class ProfitabilityCalculator {
         return {
           tokenId: request.tokenId,
           totalProfit: totalProfit.toString(),
+          value: totalValue.toString(),
           isProfitable: totalProfit > BigInt(0),
           details: profitabilityDetails,
           exerciseParams: {
@@ -492,6 +498,7 @@ export class ProfitabilityCalculator {
         return {
           tokenId: request.tokenId,
           totalProfit: totalProfit.toString(),
+          value: totalValue.toString(),
           isProfitable: totalProfit > BigInt(0),
           details: profitabilityDetails,
           exerciseParams: {
@@ -522,6 +529,7 @@ export class ProfitabilityCalculator {
         liquidityToExercise,
         swapperAddresses,
         totalProfit: totalProfit.toString(),
+        value: totalValue.toString(),
         isProfitable: totalProfit > BigInt(0),
       });
 
@@ -529,6 +537,7 @@ export class ProfitabilityCalculator {
       const result = {
         tokenId: request.tokenId,
         totalProfit: totalProfit.toString(),
+        value: totalValue.toString(),
         isProfitable: totalProfit > BigInt(0),
         details: profitabilityDetails,
         exerciseParams,
@@ -549,6 +558,7 @@ export class ProfitabilityCalculator {
       return {
         tokenId: request.tokenId,
         totalProfit: "0",
+        value: "0",
         isProfitable: false,
         details: [],
         exerciseParams: {
