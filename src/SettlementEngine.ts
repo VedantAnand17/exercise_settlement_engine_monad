@@ -219,6 +219,24 @@ export class SettlementEngine {
           },
         },
       });
+    }
+    else if (chainId === 10143) {
+      chain = defineChain({
+        id: 10143,
+        name: "Monad",
+        nativeCurrency: { name: "Monad", symbol: "MON", decimals: 8 },
+        rpcUrls: {
+          default: {
+            http: ["https://testnet-rpc.monad.xyz"],
+          },
+        },
+        contracts: {
+          multicall3: {
+            address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+            blockCreated: 251449,
+          },
+        },
+      });
     } else {
       chain = this.getChainConfig(chainId);
     }

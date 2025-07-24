@@ -48,9 +48,8 @@ export class ProfitabilityCalculator {
   // Helper method to generate a cache key for profitability requests
   private generateProfitabilityCacheKey(request: GetRatesRequest): string {
     // Create a deterministic cache key based on the request properties
-    return `${request.chainId}-${request.market}-${request.pool}-${
-      request.tokenId
-    }-${request.isCall}-${JSON.stringify(request.internalOptions)}`;
+    return `${request.chainId}-${request.market}-${request.pool}-${request.tokenId
+      }-${request.isCall}-${JSON.stringify(request.internalOptions)}`;
   }
 
   // Helper method to check if a cached result is still valid
@@ -125,7 +124,26 @@ export class ProfitabilityCalculator {
           },
         },
       });
-    } else {
+    }
+    else if (chainId === 10143) {
+      chain = defineChain({
+        id: 10143,
+        name: "Monad",
+        nativeCurrency: { name: "Monad", symbol: "MON", decimals: 8 },
+        rpcUrls: {
+          default: {
+            http: ["https://testnet-rpc.monad.xyz"],
+          },
+        },
+        contracts: {
+          multicall3: {
+            address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+            blockCreated: 251449,
+          },
+        },
+      });
+    }
+    else {
       chain = this.getChainConfig(chainId);
     }
 
@@ -361,13 +379,13 @@ export class ProfitabilityCalculator {
       const quoteResults =
         quoteRequests.length > 0
           ? await publicClient.multicall({
-              contracts: quoteRequests as readonly {
-                address: `0x${string}`;
-                abi: any;
-                functionName: string;
-                args?: readonly unknown[];
-              }[],
-            })
+            contracts: quoteRequests as readonly {
+              address: `0x${string}`;
+              abi: any;
+              functionName: string;
+              args?: readonly unknown[];
+            }[],
+          })
           : [];
 
       this.logger.info(`Time after multi call 2 ${request.tokenId}`, {
