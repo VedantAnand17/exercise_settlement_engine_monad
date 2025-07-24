@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
+    "railway:build": "npm run build",
     "dev": "ts-node src/index.ts",
     "dev:watch": "nodemon --watch 'src/**/*.ts' --signal SIGTERM --exec 'pnpm run build && pnpm run start'",
     "test": "jest",

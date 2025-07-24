@@ -291,8 +291,15 @@ export class ProfitabilityCalculator {
         request.chainId
       );
 
+      this.logger.info(`Using quoter address for chain ${request.chainId}`, {
+        quoterAddress,
+        assetToUse,
+        assetToGet,
+        poolFee
+      });
+
       // Prepare batch of quote requests for all internal options
-      const quoteRequests = [];
+      const quoteRequests: { address: `0x${string}`; abi: any; functionName: string; args: readonly [{ tokenIn: `0x${string}`; tokenOut: `0x${string}`; amountIn: bigint; fee: number; sqrtPriceLimitX96: bigint; }]; }[] = [];
       const internalOptionsData = [];
 
       for (let i = 0; i < request.internalOptions.length; i++) {
@@ -347,6 +354,20 @@ export class ProfitabilityCalculator {
         const amountToSwapBigInt = BigInt(amountLocked.toString());
         const amountToRefillBigInt = BigInt(amountToRefill.toString());
 
+        this.logger.info(`Preparing quote request for option ${i}`, {
+          tokenId: request.tokenId,
+          index: i,
+          liquidityAvailable: liquidityAvailable.toString(),
+          amountToSwap: amountToSwapBigInt.toString(),
+          amountToRefill: amountToRefillBigInt.toString(),
+          tickLower,
+          tickUpper,
+          isAmount0,
+          assetToUse,
+          assetToGet,
+          poolFee
+        });
+
         // Add to the quote requests array
         quoteRequests.push({
           address: quoterAddress as `0x${string}`,
@@ -376,6 +397,19 @@ export class ProfitabilityCalculator {
       this.logger.info(`Time before multi call 2 ${request.tokenId}`, {
         time: Date.now() - startTime,
       });
+
+      this.logger.info(`Executing ${quoteRequests.length} quote requests`, {
+        tokenId: request.tokenId,
+        quoterAddress,
+        requestDetails: quoteRequests.map((req, i) => ({
+          index: i,
+          tokenIn: req.args[0].tokenIn,
+          tokenOut: req.args[0].tokenOut,
+          amountIn: req.args[0].amountIn.toString(),
+          fee: req.args[0].fee,
+        }))
+      });
+
       const quoteResults =
         quoteRequests.length > 0
           ? await publicClient.multicall({
@@ -390,6 +424,28 @@ export class ProfitabilityCalculator {
 
       this.logger.info(`Time after multi call 2 ${request.tokenId}`, {
         time: Date.now() - startTime,
+      });
+
+      // Log all multicall results for debugging
+      quoteResults.forEach((result, index) => {
+        if (result.status === "failure") {
+          this.logger.error(`Quote request ${index} failed`, {
+            tokenId: request.tokenId,
+            index,
+            error: result.error,
+            request: quoteRequests[index]
+          });
+        } else {
+          const resultTuple = result.result as [bigint, bigint, number, bigint];
+          this.logger.info(`Quote request ${index} succeeded`, {
+            tokenId: request.tokenId,
+            index,
+            amountOut: resultTuple[0].toString(),
+            sqrtPriceX96After: resultTuple[1].toString(),
+            initializedTicksCrossed: resultTuple[2],
+            gasEstimate: resultTuple[3].toString()
+          });
+        }
       });
 
       // Process results and calculate profitability

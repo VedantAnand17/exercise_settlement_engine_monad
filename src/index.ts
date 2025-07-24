@@ -19,6 +19,7 @@ const {
   LOG_LEVEL_WARN = "false",
   LOG_LEVEL_INFO = "false",
   SERVER_PORT = "3000",
+  PORT, // Railway provides this
 } = process.env;
 
 if (!PRIVATE_KEY) {
@@ -167,7 +168,7 @@ async function main() {
     });
 
     // Start the server
-    const port = parseInt(SERVER_PORT, 10);
+    const port = parseInt(PORT || SERVER_PORT, 10);
     const server = app.listen(port, () => {
       console.log(`API server listening on port ${port}`);
     });
